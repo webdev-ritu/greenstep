@@ -37,14 +37,23 @@ Firebase account
 📂 Folder Structure
 
 greensteps/
+
 ├── public/
+
 ├── src/
-│   ├── components/     # All UI components
+
+│   ├── components/  # All UI components
+
 │   ├── pages/          # Page-level components (Login, Dashboard, Charts, etc.)
+
 │   ├── firebase.js     # Firebase config
+
 │   ├── App.jsx         # Main app with routing
+
 │   └── main.jsx        # Entry point
+
 ├── package.json
+
 └── README.md
 
 🧠 Tech Stack
