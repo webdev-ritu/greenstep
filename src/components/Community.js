@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { Container, Row, Col, Card, Table, Alert } from "react-bootstrap";
+import { Container, Row, Col, Card, Table, Alert, Button } from "react-bootstrap";
 import { db } from "../firebase";
-import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, limit, where } from "firebase/firestore";
+import { useAuth } from "../context/AuthContext";
 
 export default function Community() {
+  const { user } = useAuth();
   const [communityStats, setCommunityStats] = useState({
     totalActions: 0,
     totalPoints: 0,
@@ -13,48 +15,49 @@ export default function Community() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const fetchCommunityData = async () => {
-      try {
-        // Get all users to calculate totals
-        const usersRef = collection(db, "users");
-        const usersSnap = await getDocs(usersRef);
+  const fetchCommunityData = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      
+      // 1. Fetch leaderboard (users with points > 0)
+      const usersQuery = query(
+        collection(db, "users"),
+        where("totalPoints", ">", 0),
+        orderBy("totalPoints", "desc"),
+        limit(10)
+      );
+      
+      const leaderboardSnapshot = await getDocs(usersQuery);
+      const leaderboard = leaderboardSnapshot.docs.map(doc => ({
+        name: doc.data().displayName || doc.id.slice(0, 6),
+        points: doc.data().totalPoints
+      }));
+
+      // 2. Calculate totals (only from leaderboard users for efficiency)
+      let totalPoints = 0;
+      leaderboard.forEach(user => {
+        totalPoints += user.points;
+      });
+
+      // 3. Get habit counts (only from current user's logs due to security rules)
+      if (user) {
+        const logsRef = collection(db, "users", user.uid, "logs");
+        const logsSnap = await getDocs(logsRef);
         
         let totalActions = 0;
-        let totalPoints = 0;
         const habitCounts = {};
-        const leaderboard = [];
         
-        usersSnap.forEach(userDoc => {
-          const userData = userDoc.data();
-          totalPoints += userData.totalPoints || 0;
+        logsSnap.forEach(logDoc => {
+          const logData = logDoc.data();
+          totalActions += logData.habits?.length || 0;
           
-          // For leaderboard (only include users with points)
-          if (userData.totalPoints > 0) {
-            leaderboard.push({
-              name: userData.displayName || userDoc.id.slice(0, 6),
-              points: userData.totalPoints || 0
-            });
-          }
-        });
-        
-        // Get all logs to count habits
-        const allLogs = [];
-        for (const userDoc of usersSnap.docs) {
-          const logsRef = collection(db, "users", userDoc.id, "logs");
-          const logsSnap = await getDocs(logsRef);
-          logsSnap.forEach(logDoc => {
-            allLogs.push(logDoc.data());
-            totalActions += logDoc.data().habits.length;
-            
-            // Count habits
-            logDoc.data().habits.forEach(habit => {
-              habitCounts[habit] = (habitCounts[habit] || 0) + 1;
-            });
+          logData.habits?.forEach(habit => {
+            habitCounts[habit] = (habitCounts[habit] || 0) + 1;
           });
-        }
-        
-        // Find top habit
+        });
+
+        // Find top habit from current user's data
         let topHabit = '';
         let maxCount = 0;
         for (const [habit, count] of Object.entries(habitCounts)) {
@@ -65,25 +68,33 @@ export default function Community() {
             ).join(' ');
           }
         }
-        
-        // Sort leaderboard
-        leaderboard.sort((a, b) => b.points - a.points);
-        
+
         setCommunityStats({
           totalActions,
           totalPoints,
           topHabit,
-          leaderboard: leaderboard.slice(0, 10)
+          leaderboard
         });
-        setLoading(false);
-      } catch (err) {
-        setError("Failed to load community data: " + err.message);
-        setLoading(false);
+      } else {
+        // If not logged in, just show leaderboard
+        setCommunityStats(prev => ({
+          ...prev,
+          totalPoints,
+          leaderboard
+        }));
       }
-    };
-    
+      
+    } catch (err) {
+      setError("Failed to load community data: " + err.message);
+      console.error("Firestore error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchCommunityData();
-  }, []);
+  }, [user]); // Re-fetch when user changes
 
   if (loading) {
     return (
@@ -98,48 +109,64 @@ export default function Community() {
   return (
     <Container>
       <h2 className="mb-4">Community Impact</h2>
-      {error && <Alert variant="danger">{error}</Alert>}
       
-      <Row className="mb-4">
+      {error && (
+        <Alert variant="danger">
+          {error}
+          <div className="mt-2">
+            <Button variant="outline-danger" size="sm" onClick={fetchCommunityData}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      )}
+
+      <Row className="mb-4 g-4">
         <Col md={4}>
-          <Card className="text-center">
-            <Card.Body>
-              <Card.Title>Total Actions</Card.Title>
-              <Card.Text className="display-6 text-success">
-                {communityStats.totalActions.toLocaleString()}
-              </Card.Text>
-              <Card.Text>eco-friendly actions logged</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={4}>
-          <Card className="text-center">
+          <Card className="h-100 text-center">
             <Card.Body>
               <Card.Title>Total Points</Card.Title>
-              <Card.Text className="display-6 text-success">
+              <Card.Text className="display-5 text-success">
                 {communityStats.totalPoints.toLocaleString()}
               </Card.Text>
               <Card.Text>eco points earned</Card.Text>
             </Card.Body>
           </Card>
         </Col>
+        
         <Col md={4}>
-          <Card className="text-center">
+          <Card className="h-100 text-center">
             <Card.Body>
               <Card.Title>Top Habit</Card.Title>
-              <Card.Text className="display-6 text-success">
+              <Card.Text className="display-5 text-success">
                 {communityStats.topHabit || 'N/A'}
               </Card.Text>
-              <Card.Text>most common action this week</Card.Text>
+              <Card.Text>
+                {user ? "Your most common action" : "Sign in to see your habits"}
+              </Card.Text>
+            </Card.Body>
+          </Card>
+        </Col>
+        
+        <Col md={4}>
+          <Card className="h-100 text-center">
+            <Card.Body>
+              <Card.Title>My Actions</Card.Title>
+              <Card.Text className="display-5 text-success">
+                {user ? communityStats.totalActions.toLocaleString() : 'N/A'}
+              </Card.Text>
+              <Card.Text>
+                {user ? "Your eco actions" : "Sign in to track"}
+              </Card.Text>
             </Card.Body>
           </Card>
         </Col>
       </Row>
-      
-      <Card className="mb-4">
+
+      <Card>
         <Card.Body>
           <Card.Title>Eco Leaderboard</Card.Title>
-          <Table striped bordered hover>
+          <Table striped bordered hover responsive>
             <thead>
               <tr>
                 <th>Rank</th>
@@ -157,7 +184,9 @@ export default function Community() {
               ))}
               {communityStats.leaderboard.length === 0 && (
                 <tr>
-                  <td colSpan="3" className="text-center">No data available yet</td>
+                  <td colSpan="3" className="text-center">
+                    {user ? "No community data yet" : "Sign in to see leaderboard"}
+                  </td>
                 </tr>
               )}
             </tbody>
