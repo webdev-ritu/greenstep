@@ -23,7 +23,7 @@ A gamified sustainability tracker built with React, Firebase, and Chart.js.
 
 Try the app:
 
-🌐 [https://greensteps-yourproject.web.app](https://greensteps-697dc.web.app)
+🌐 [https://greensteps-yourproject.web.app](https://greensteps-697dc.web.app/)
 
 
 🛠️ Installation
